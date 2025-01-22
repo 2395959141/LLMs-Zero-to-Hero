@@ -38,13 +38,19 @@ def main():
     
     # Load data
     if args.data_path:
-        dataset = MyDataset(args.data_path)
+        full_dataset = MyDataset(args.data_path)
     else:
-        dataset = load_dataset(args.dataset)
+        dataset_dict = load_dataset(args.dataset)
+        full_dataset = dataset_dict['train']
         
+    # 计算分割大小
+    train_size = int(0.9 * len(full_dataset))
+    val_size = len(full_dataset) - train_size
+    
+    # 分割数据集
     train_dataset, val_dataset = torch.utils.data.random_split(
-        dataset['train'], 
-        [0.9, 0.1]
+        full_dataset, 
+        [train_size, val_size]
     )
     
     train_loader = DataLoader(

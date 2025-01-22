@@ -45,7 +45,30 @@ class HFDataset(Dataset):
 
 def load_dataset(dataset_name):
     """加载数据集的包装函数"""
-    return HFDataset(dataset_name)
+    try:
+        # 加载数据集
+        raw_dataset = hf_load_dataset(
+            dataset_name,
+            trust_remote_code=True,
+            use_auth_token=False,
+        )
+        
+        # 打印数据集信息
+        print("Dataset structure:", raw_dataset)
+        print("Available splits:", raw_dataset.keys())
+        if 'train' in raw_dataset:
+            print("Train split size:", len(raw_dataset['train']))
+            print("Sample:", raw_dataset['train'][0])
+        
+        # 根据数据集结构选择合适的分割
+        if 'train' in raw_dataset:
+            return raw_dataset
+        else:
+            return {'train': raw_dataset}
+            
+    except Exception as e:
+        print(f"加载数据集时出错: {e}")
+        raise
 
 class MyDataset(Dataset):
     def __init__(self, path, block_size=512):
