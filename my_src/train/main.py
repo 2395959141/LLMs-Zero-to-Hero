@@ -3,8 +3,9 @@ import torch
 from torch.utils.data import DataLoader
 from config import GPTConfig
 from model import GPT
-from dataset import MyDataset , load_dataset
+from dataset import MyDataset, load_dataset
 from trainer import train_model
+import os
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a GPT model')
@@ -18,10 +19,17 @@ def parse_args():
                         help='dataset name on Hugging Face')
     parser.add_argument('--data-path', type=str, default=None,
                         help='path to local dataset directory')
+    parser.add_argument('--run-name', type=str, default="gpt_training",
+                        help='name for this training run')
+    parser.add_argument('--checkpoint-dir', type=str, default="checkpoints",
+                        help='directory to save model checkpoints')
     return parser.parse_args()
 
 def main():
     args = parse_args()
+    
+    # 创建checkpoint目录
+    os.makedirs(args.checkpoint_dir, exist_ok=True)
     
     # Initialize model
     config = GPTConfig()
@@ -30,9 +38,10 @@ def main():
     
     # Load data
     if args.data_path:
-        dataset = load_dataset(args.data_path)
+        dataset = MyDataset(args.data_path)
     else:
         dataset = load_dataset(args.dataset)
+        
     train_dataset, val_dataset = torch.utils.data.random_split(
         dataset['train'], 
         [0.9, 0.1]
@@ -54,7 +63,8 @@ def main():
         model, 
         train_loader, 
         val_loader, 
-        num_epochs=args.epochs
+        num_epochs=args.epochs,
+        run_name=args.run_name
     )
 
 if __name__ == "__main__":
