@@ -3,7 +3,7 @@ import torch
 from torch.utils.data import DataLoader
 from config import GPTConfig
 from model import GPT
-from dataset import MyDataset, load_dataset
+from dataset import MyDataset, HFDataset
 from trainer import train_model
 import os
 
@@ -38,11 +38,12 @@ def main():
     
     # Load data
     if args.data_path:
+        # 使用MyDataset处理本地数据
         full_dataset = MyDataset(args.data_path)
     else:
-        dataset_dict = load_dataset(args.dataset)
-        full_dataset = dataset_dict['train']
-        
+        # 使用HFDataset处理Hugging Face数据集
+        full_dataset = HFDataset(args.dataset)
+    
     # 计算分割大小
     train_size = int(0.9 * len(full_dataset))
     val_size = len(full_dataset) - train_size
