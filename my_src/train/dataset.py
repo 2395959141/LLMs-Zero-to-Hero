@@ -3,11 +3,25 @@ from torch.utils.data import Dataset
 import json
 import tiktoken
 from datasets import load_dataset as hf_load_dataset
+import os
+
+# 设置HuggingFace镜像
+os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+# 如果需要设置代理
+# os.environ['TRANSFORMERS_OFFLINE'] = '1'  # 离线模式
+# os.environ['HF_HOME'] = '/path/to/cache/huggingface'  # 缓存目录
 
 class HFDataset(Dataset):
     """包装 Hugging Face 数据集的自定义数据集类"""
     def __init__(self, dataset_name, block_size=512):
-        self.dataset = hf_load_dataset(dataset_name)['train']
+        # 使用镜像加载数据集
+        self.dataset = hf_load_dataset(
+            dataset_name,
+            trust_remote_code=True,  # 允许运行远程代码
+            use_auth_token=False,    # 不使用认证
+        )['train']
+        
+        # 初始化tokenizer
         self.enc = tiktoken.get_encoding("gpt2")
         self.block_size = block_size
         
