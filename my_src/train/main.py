@@ -21,7 +21,7 @@ def parse_args():
                         help='path to local dataset directory')
     parser.add_argument('--run-name', type=str, default=None,
                         help='name for this training run')
-    parser.add_argument('--checkpoint-dir', type=str, default=None,
+    parser.add_argument('--checkpoint-dir', type=str, default="checkpoints",
                         help='directory to save model checkpoints')
     return parser.parse_args()
 
@@ -53,13 +53,18 @@ def main():
     
     # 加载数据
     if train_config.data_path:
-        full_dataset = MyDataset(train_config.data_path)
+        full_dataset = MyDataset(train_config.data_path, block_size=model_config.block_size)
+        print(f"本地数据集大小：{len(full_dataset)}")
     else:
-        dataset_dict = HFDataset(train_config.dataset)
-        full_dataset = dataset_dict['train']
+        dataset_dict = HFDataset(train_config.dataset, block_size=model_config.block_size)
+        print(f"HuggingFace数据集加载完成")
+        print(f"数据集大小：{len(dataset_dict)}")
+        if hasattr(dataset_dict, 'column_names'):
+            print(f"数据集列：{dataset_dict.column_names}")
+        full_dataset = dataset_dict
         
     # 计算分割大小
-    train_size = int(train_config.train_val_split * len(full_dataset))
+    train_size = int(len(full_dataset) * train_config.train_val_split)
     val_size = len(full_dataset) - train_size
     
     # 分割数据集
@@ -68,25 +73,37 @@ def main():
         [train_size, val_size]
     )
     
+    # 在创建数据加载器之前打印数据集大小
+    print(f"训练集大小: {len(train_dataset)}")
+    print(f"验证集大小: {len(val_dataset)}")
+    
+    # 创建数据加载器
     train_loader = DataLoader(
-        train_dataset, 
-        batch_size=train_config.batch_size, 
-        shuffle=True
-    )
-    val_loader = DataLoader(
-        val_dataset, 
-        batch_size=train_config.batch_size, 
-        shuffle=False
+        train_dataset,
+        batch_size=train_config.batch_size,
+        shuffle=True,  # 添加shuffle=True来打乱训练数据
+        num_workers=4,  # 添加多进程加载
+        pin_memory=True  # 使用PIN_MEMORY来加速数据传输
     )
     
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=train_config.batch_size,
+        shuffle=False,  # 验证集不需要打乱
+        num_workers=4,
+        pin_memory=True
+    )
+
     # 训练模型
     model, best_val_loss = train_model(
-        model, 
-        train_loader, 
-        val_loader, 
-        train_config,
+        model=model,
+        train_dataset=train_dataset,
+        val_dataset=val_dataset,
+        train_loader=train_loader,  # 传入DataLoader
+        val_loader=val_loader,      # 传入DataLoader
+        config=train_config,
         num_epochs=train_config.epochs,
-        run_name=train_config.run_name
+        run_name=args.run_name
     )
     
     print(f'训练完成！最佳验证损失: {best_val_loss:.4f}')

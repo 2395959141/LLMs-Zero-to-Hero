@@ -13,23 +13,34 @@ os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 
 class HFDataset(Dataset):
     """包装 Hugging Face 数据集的自定义数据集类"""
-    def __init__(self, dataset_name, block_size=512):
+    def __init__(self, dataset_name, block_size=1024, max_samples=500000):
         # 使用镜像加载数据集
-        self.dataset = hf_load_dataset(
+        full_dataset = hf_load_dataset(
             dataset_name,
             trust_remote_code=True,  # 允许运行远程代码
             use_auth_token=False,    # 不使用认证
         )['train']
         
+        # 如果指定了最大样本数，则只使用部分数据
+        if max_samples is not None:
+            max_samples = min(max_samples, len(full_dataset))
+            self.raw_dataset = full_dataset.select(range(max_samples))
+            print(f"从原始数据集（{len(full_dataset)}条）中选择了 {max_samples} 条数据")
+        else:
+            self.raw_dataset = full_dataset
+        
         # 初始化tokenizer
         self.enc = tiktoken.get_encoding("gpt2")
         self.block_size = block_size
         
+        # 添加column_names属性
+        self.column_names = self.raw_dataset.column_names
+        
     def __len__(self):
-        return len(self.dataset)
+        return len(self.raw_dataset)
     
     def __getitem__(self, idx):
-        text = self.dataset[idx]['text']
+        text = self.raw_dataset[idx]['text']
         encoded = self.enc.encode(text)
         
         # 确保长度为block_size + 1
@@ -71,40 +82,53 @@ def load_dataset(dataset_name):
         raise
 
 class MyDataset(Dataset):
-    def __init__(self, path, block_size=512):
+    def __init__(self, path, block_size=512):  # 修改默认block_size为512以匹配GPT配置
         self.enc = tiktoken.get_encoding("gpt2")
         self.block_size = block_size
+        
+        # 特殊符号用于分割训练文本
         self.eos_token = self.enc.encode(
             "<|endoftext|>",
             allowed_special={"<|endoftext|>"}
         )[0]
 
         self.encoded_data = []
-        self.max_lines = 1000
+        self.max_lines = 500000
         raw_data = []
-        
+
+        print(f"开始加载数据...")
         with open(path, 'r') as f:
             for i, line in enumerate(f):
                 if i >= self.max_lines:
                     break
+                if i % 10000 == 0:  # 每处理10000行打印一次进度
+                    print(f"已处理 {i} 行数据...")
                 try:
                     text = json.loads(line.strip())['text']
                     raw_data.append(text)
-                except (json.JSONDecodeError, Exception):
+                except json.JSONDecodeError as je:
+                    print(f"JSON解析错误，跳过行 {i}: {je}")
                     continue
-                    
+                except Exception as e:
+                    print(f"未知错误，跳过行 {i}: {e}")
+                    continue
+
+        # 预训练中很重要的一个技术是把所有文本拼接起来，用特殊符号进行分割
         full_encoded = []
         for text in raw_data:
             encoded_text = self.enc.encode(text)
             full_encoded.extend(encoded_text + [self.eos_token])
-        
+
+        # 把长文本切割为block_size的文本块
         for i in range(0, len(full_encoded), self.block_size):
-            chunk = full_encoded[i:i+self.block_size+1]
+            # 多取一个Token作为目标，方便对target进行shift移位处理
+            chunk = full_encoded[i:i + self.block_size + 1]
             if len(chunk) < self.block_size + 1:
                 chunk = chunk + [self.eos_token] * (self.block_size + 1 - len(chunk))
             self.encoded_data.append(chunk)
-        print(f"数据预处理完成，共处理了 {len(self.encoded_data)} 个文本块")    
-    
+        
+        print(f"数据预处理完成，共处理了 {len(self.encoded_data)} 个文本块")
+
     def __len__(self):
         return len(self.encoded_data)
     
@@ -118,4 +142,10 @@ class MyDataset(Dataset):
         return self.enc.encode(text)
 
     def decode(self, ids):
-        return self.enc.decode(ids) 
+        return self.enc.decode(ids)
+
+def validate_sequence_length(text_length, block_size):
+    """验证序列长度是否合适"""
+    if text_length > block_size:
+        print(f"警告：输入序列长度 ({text_length}) 超过了 block_size ({block_size})")
+    return min(text_length, block_size) 
