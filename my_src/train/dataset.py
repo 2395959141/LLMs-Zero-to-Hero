@@ -103,6 +103,7 @@ class MyDataset(Dataset):
             if len(chunk) < self.block_size + 1:
                 chunk = chunk + [self.eos_token] * (self.block_size + 1 - len(chunk))
             self.encoded_data.append(chunk)
+        print(f"数据预处理完成，共处理了 {len(self.encoded_data)} 个文本块")    
     
     def __len__(self):
         return len(self.encoded_data)
