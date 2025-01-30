@@ -161,8 +161,11 @@ def train_model(
     # 设置优化器
     optimizer = torch.optim.AdamW(
         model.parameters(),
-        lr=config.learning_rate,
-        weight_decay=config.weight_decay
+        lr=config.learning_rate, #3e-4
+        betas=(0.9, 0.95),
+        eps=1e-8,
+        weight_decay=config.weight_decay, #0.01
+        foreach=True  
     )
     
     # 添加学习率调度器
@@ -199,7 +202,7 @@ def train_model(
             # 使用混合精度训练
             with autocast(device_type='cuda', dtype=torch.bfloat16):
                 logits, loss = model(x, y)
-                loss = loss / config.gradient_accumulation_steps
+            loss = loss / config.gradient_accumulation_steps # 为梯度累积调整loss
             scaler.scale(loss).backward()
             
             # 累积损失
