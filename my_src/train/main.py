@@ -48,7 +48,7 @@ def main():
     args = parse_args()
     
     # 初始化配置
-    model_config = GPTConfig()
+    model_config = GPTConfig(vocab_size=50304) ##让大矩阵能够更好地被CUDA加速
     train_config = TrainConfig()
     
     # 使用命令行参数更新配置
