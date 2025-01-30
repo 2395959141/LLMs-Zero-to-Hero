@@ -71,7 +71,7 @@ def train(model, optimizer, scheduler, train_loader, val_loader, device, epoch, 
             pbar.update(1)
             
             # 记录训练指标
-            swanlab.log({
+            safe_log({
                 "train/avg_loss": avg_loss,
                 "train/learning_rate": current_lr,
                 "train/global_step": global_step,
@@ -85,7 +85,7 @@ def train(model, optimizer, scheduler, train_loader, val_loader, device, epoch, 
             if config.eval_steps > 0 and global_step % config.eval_steps == 0:
                 val_loss, accuracy = eval(model, val_loader, device)
                 print(f'\nStep {global_step}: Val Loss: {val_loss:.4f}, Accuracy: {accuracy:.4f}')
-                swanlab.log({
+                safe_log({
                     "val/loss": val_loss,
                     "val/accuracy": accuracy,
                     "val/step": global_step
@@ -130,7 +130,12 @@ def eval(model, val_loader, device):
     accuracy = total_correct / total_samples
     return val_loss / len(val_loader), accuracy 
 
-
+def safe_log(metrics):
+    """安全的记录指标"""
+    try:
+        swanlab.log(metrics)
+    except Exception as e:
+        print(f"警告：记录指标失败 - {str(e)}")
 
 def train_model(
     model,
@@ -140,16 +145,23 @@ def train_model(
     val_loader,
     config,
     num_epochs,
-    run_name=None
+    run_name=None,
+    use_swanlab=True
 ):
     """训练模型的主函数"""
     
-    # 初始化swanlab
-    if run_name:
+    if use_swanlab:
+        if run_name is None:
+            run_name = "default_run"
         swanlab.init(
             experiment_name=run_name,
-            config=vars(config)  # 将config对象转换为字典
+            config=vars(config)
         )
+    
+    # 修改所有的 swanlab.log 调用
+    def log_metrics(metrics):
+        if use_swanlab:
+            safe_log(metrics)
     
     # 设置设备
     device = torch.device("cuda")
@@ -238,7 +250,7 @@ def train_model(
                 pbar.update(config.gradient_accumulation_steps)
                 
                 # 记录到swanlab
-                swanlab.log({
+                log_metrics({
                     "train/avg_loss": avg_loss,
                     "train/learning_rate": current_lr,
                     "train/epoch": epoch + (batch_idx + 1) / len(train_loader),
@@ -252,7 +264,7 @@ def train_model(
                     print(f'\nStep {global_step}: Val Loss: {val_loss:.4f}, Accuracy: {accuracy:.4f}')
                     
                     # 记录验证结果
-                    swanlab.log({
+                    log_metrics({
                         "val/loss": val_loss,
                         "val/accuracy": accuracy,
                         "val/step": global_step
@@ -319,7 +331,7 @@ def train_model(
                 print(f'保存最佳模型到 {checkpoint_path}')
 
         # 记录到swanlab
-        swanlab.log({
+        log_metrics({
             "val/loss": val_loss,
             "val/accuracy": accuracy,
             "val/best_loss": best_val_loss,
@@ -332,7 +344,7 @@ def train_model(
               f'Accuracy: {accuracy:.4f}')
 
     # 记录到swanlab
-    swanlab.log({
+    log_metrics({
         "train/total_loss": total_loss,
         "train/best_loss": best_val_loss,
         "train/epochs": num_epochs
