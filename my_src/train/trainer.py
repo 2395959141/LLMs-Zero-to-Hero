@@ -34,30 +34,21 @@ def train(model, optimizer, scheduler, train_loader, val_loader, device, epoch, 
         # 将数据移到设备上
         x, y = x.to(device), y.to(device)
         
-        # 根据设备类型选择是否使用混合精度训练
-        if device_type == 'cuda':
-            with autocast(device_type=device_type):
-                logits, loss = model(x, targets=y)
-                loss = loss / accumulation_steps
-            scaler.scale(loss).backward()
-        else:
+        # 使用混合精度训练
+        with autocast(device_type='cuda'):
             logits, loss = model(x, targets=y)
             loss = loss / accumulation_steps
-            loss.backward()
+        scaler.scale(loss).backward()
         
         # 累积loss（使用未缩放的loss计算平均值）
         accumulated_loss += loss.item() * accumulation_steps
         
         # 在达到累积步数时更新参数
         if (batch_idx + 1) % accumulation_steps == 0:
-            if device_type == 'cuda':
-                scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-                scaler.step(optimizer)
-                scaler.update()
-            else:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-                optimizer.step()
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            scaler.step(optimizer)
+            scaler.update()
             
             optimizer.zero_grad()
             
@@ -103,11 +94,8 @@ def train(model, optimizer, scheduler, train_loader, val_loader, device, epoch, 
     
     # 处理最后不完整的累积步数
     if accumulated_loss > 0:
-        if device_type == 'cuda':
-            scaler.step(optimizer)
-            scaler.update()
-        else:
-            optimizer.step()
+        scaler.step(optimizer)
+        scaler.update()
         optimizer.zero_grad()
         scheduler.step()
         avg_loss = accumulated_loss / (batch_idx % accumulation_steps + 1)
@@ -123,10 +111,7 @@ def eval(model, val_loader, device):
     total_correct = 0
     total_samples = 0
     
-    # 确定device_type
-    device_type = 'cuda' if device == 'cuda' else 'cpu'
-    
-    with torch.no_grad(), autocast(device_type=device_type):
+    with torch.no_grad(), autocast(device_type='cuda'):
         for x, y in val_loader:
             x, y = x.to(device), y.to(device)
             logits, loss = model(x, targets=y)
@@ -167,12 +152,11 @@ def train_model(
         )
     
     # 设置设备
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = torch.device("cuda")
     model = model.to(device)
     
-    # 只在CUDA设备上使用GradScaler
-    scaler = GradScaler() if device_type == 'cuda' else None
+    # 初始化GradScaler
+    scaler = GradScaler()
     
     # 设置优化器
     optimizer = torch.optim.AdamW(
@@ -212,32 +196,23 @@ def train_model(
         for batch_idx, (x, y) in enumerate(train_loader):
             x, y = x.to(device), y.to(device)
             
-            # 根据设备类型选择是否使用混合精度训练
-            if device_type == 'cuda':
-                with autocast(device_type=device_type):
-                    logits, loss = model(x, y)
-                    loss = loss / config.gradient_accumulation_steps
-                scaler.scale(loss).backward()
-            else:
+            # 使用混合精度训练
+            with autocast(device_type='cuda', dtype=torch.bfloat16):
                 logits, loss = model(x, y)
                 loss = loss / config.gradient_accumulation_steps
-                loss.backward()
+            scaler.scale(loss).backward()
             
             # 累积损失
             accumulated_loss += loss.item() * config.gradient_accumulation_steps
             
             # 在达到累积步数时更新参数
             if (batch_idx + 1) % config.gradient_accumulation_steps == 0:
-                if device_type == 'cuda':
-                    # 梯度裁剪
-                    scaler.unscale_(optimizer)
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip)
-                    # 更新参数
-                    scaler.step(optimizer)
-                    scaler.update()
-                else:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip)
-                    optimizer.step()
+                # 梯度裁剪
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip)
+                # 更新参数
+                scaler.step(optimizer)
+                scaler.update()
                 
                 # 更新学习率
                 scheduler.step()

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 @dataclass
 class TrainConfig:
     # 基础训练参数
-    batch_size: int = 10  # 每个批次的样本数
+    batch_size: int = 8  # 每个批次的样本数
     epochs: int = 2
     learning_rate: float = 3e-4
     
@@ -54,8 +54,8 @@ class TrainConfig:
 @dataclass
 class GPTConfig:
     block_size: int = 1024   # 这里其实应该是文本的最大长度（max_seq_len）
-    n_layer: int = 6
-    n_head: int = 12
+    n_layer: int = 6   
+    n_head: int = 12  
     n_embd: int = 768    # n_embd 也叫 hidden_dim, hiden_size, 这里同时设置了和 embed_dim 一样
     head_size: int = n_embd // n_head
     dropout: float = 0.1

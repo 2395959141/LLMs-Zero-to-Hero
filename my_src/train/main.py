@@ -6,6 +6,11 @@ from model import GPT
 from dataset import MyDataset, HFDataset
 from trainer import train_model
 import os
+import warnings
+
+# 检查 PyTorch 版本
+if torch.__version__ < "2.0.0":
+    warnings.warn("torch.compile() 需要 PyTorch 2.0 或更高版本。当前版本将不会启用编译优化。")
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a GPT model')
@@ -23,6 +28,11 @@ def parse_args():
                         help='name for this training run')
     parser.add_argument('--checkpoint-dir', type=str, default="checkpoints",
                         help='directory to save model checkpoints')
+    parser.add_argument('--compile-mode', type=str, default="default",
+                      choices=["default", "reduce-overhead", "max-autotune"],
+                      help='torch.compile的优化模式')
+    parser.add_argument('--no-compile', action='store_true',
+                      help='禁用模型编译优化')
     return parser.parse_args()
 
 def update_config_from_args(config, args):
@@ -50,6 +60,15 @@ def main():
     # 初始化模型
     model_config.batch_size = train_config.batch_size  # 确保两个配置的batch_size一致
     model = GPT(model_config)
+    
+    # 使用 torch.compile() 编译模型以提升性能
+    if not args.no_compile and torch.__version__ >= "2.0.0":
+        try:
+            print(f"正在使用 {args.compile_mode} 模式编译模型...")
+            model = torch.compile(model, mode=args.compile_mode)
+            print("模型编译完成！")
+        except Exception as e:
+            print(f"模型编译失败，将使用原始模型继续训练。错误信息: {str(e)}")
     
     # 加载数据
     if train_config.data_path:

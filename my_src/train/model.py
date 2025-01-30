@@ -9,27 +9,32 @@ class SingleHeadAttention(nn.Module):
         self.value = nn.Linear(config.n_embd, config.head_size)
         self.query = nn.Linear(config.n_embd, config.head_size)
 
-        self.register_buffer(
-            'attention_mask', 
-            torch.tril(
-                torch.ones(config.block_size, config.block_size)
-            ))
+        # self.register_buffer(
+        #     'attention_mask', 
+        #     torch.tril(
+        #         torch.ones(config.block_size, config.block_size)
+        #     ))
         self.dropout = nn.Dropout(config.dropout)
+        self.scale = config.head_size ** -0.5
+        self.block_size = config.block_size
 
     def forward(self, x):
         batch_size, seq_len, hidden_size = x.size()
-        k = self.key(x)
-        v = self.value(x)
-        q = self.query(x)
-        weight = q @ k.transpose(-2, -1)
-        weight = weight.masked_fill(
-            self.attention_mask[:seq_len, :seq_len] == 0, 
-            float('-inf')
+        k = self.key(x)   # (B, T, hs)
+        v = self.value(x) # (B, T, hs)
+        q = self.query(x) # (B, T, hs)
+        
+        # 使用 torch.scaled_dot_product_attention (Flash Attention)
+        # 该函数在支持的硬件上会自动使用 Flash Attention
+        attn_output = F.scaled_dot_product_attention(
+            q, k, v,
+            attn_mask=None,
+            dropout_p=self.dropout.p if self.training else 0.0,
+            is_causal=True,
+            scale=self.scale
         )
-        weight = F.softmax(weight, dim=-1)
-        weight = self.dropout(weight)
-        out = weight @ v
-        return out
+        
+        return attn_output
 
 class MultiHeadAttention(nn.Module):
     def __init__(self, config):
