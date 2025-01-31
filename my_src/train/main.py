@@ -82,19 +82,22 @@ def main():
             print(f"数据集列：{dataset_dict.column_names}")
         full_dataset = dataset_dict
         
-    # 计算分割大小
+    # 修改数据集划分方式（在main函数中）
     train_size = int(len(full_dataset) * train_config.train_val_split)
-    val_size = len(full_dataset) - train_size
-    
-    # 分割数据集
-    train_dataset, val_dataset = torch.utils.data.random_split(
+    val_size = int((len(full_dataset) - train_size) * 0.5)  # 50%验证，50%测试
+    test_size = len(full_dataset) - train_size - val_size
+
+    # 使用random_split时设置generator固定随机种子
+    train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(
         full_dataset, 
-        [train_size, val_size]
+        [train_size, val_size, test_size],
+        generator=torch.Generator().manual_seed(42)  # 固定随机种子
     )
-    
+
     # 在创建数据加载器之前打印数据集大小
     print(f"训练集大小: {len(train_dataset)}")
     print(f"验证集大小: {len(val_dataset)}")
+    print(f"测试集大小: {len(test_dataset)}")
     
     # 创建数据加载器
     train_loader = DataLoader(
@@ -113,13 +116,23 @@ def main():
         pin_memory=True
     )
 
+    # 创建测试数据加载器（强制batch_size=8）
+    test_loader = DataLoader(
+        test_dataset,  # 使用独立的测试集
+        batch_size=8,
+        shuffle=False,  # 测试集不需要shuffle
+        num_workers=1,
+        drop_last=True  # 确保每个批次都是8个样本
+    )
+
     # 训练模型
     model, best_val_loss = train_model(
         model=model,
         train_dataset=train_dataset,
         val_dataset=val_dataset,
-        train_loader=train_loader,  # 传入DataLoader
-        val_loader=val_loader,      # 传入DataLoader
+        train_loader=train_loader,
+        val_loader=val_loader,
+        test_loader=test_loader,  # 添加测试数据加载器
         config=train_config,
         num_epochs=train_config.epochs,
         run_name=args.run_name

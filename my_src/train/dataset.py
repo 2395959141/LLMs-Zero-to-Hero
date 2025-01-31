@@ -1,7 +1,7 @@
 import torch
 from torch.utils.data import Dataset
 import json
-import tiktoken
+from transformers import BertTokenizer  # 添加导入
 from datasets import load_dataset as hf_load_dataset
 import os
 
@@ -13,12 +13,12 @@ os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 
 class HFDataset(Dataset):
     """包装 Hugging Face 数据集的自定义数据集类"""
-    def __init__(self, dataset_name, block_size=1024, max_samples=500000):
+    def __init__(self, dataset_name, block_size=1024, max_samples=5000000):
         # 使用镜像加载数据集
         full_dataset = hf_load_dataset(
             dataset_name,
-            trust_remote_code=True,  # 允许运行远程代码
-            use_auth_token=False,    # 不使用认证
+            trust_remote_code=True,  
+            use_auth_token=False,    
         )['train']
         
         # 如果指定了最大样本数，则只使用部分数据
@@ -29,8 +29,8 @@ class HFDataset(Dataset):
         else:
             self.raw_dataset = full_dataset
         
-        # 初始化tokenizer
-        self.enc = tiktoken.get_encoding("gpt2")
+        # 初始化BERT分词器
+        self.tokenizer = BertTokenizer.from_pretrained('bert-base-chinese')
         self.block_size = block_size
         
         # 添加column_names属性
@@ -41,13 +41,14 @@ class HFDataset(Dataset):
     
     def __getitem__(self, idx):
         text = self.raw_dataset[idx]['text']
-        encoded = self.enc.encode(text)
-        
-        # 确保长度为block_size + 1
-        if len(encoded) > self.block_size + 1:
-            encoded = encoded[:self.block_size + 1]
-        elif len(encoded) < self.block_size + 1:
-            encoded = encoded + [self.enc.eot_token] * (self.block_size + 1 - len(encoded))
+        # 使用BERT分词器进行编码
+        encoded = self.tokenizer.encode(
+            text,
+            add_special_tokens=True,
+            max_length=self.block_size + 1,
+            truncation=True,
+            padding='max_length'
+        )
         
         # 创建输入和目标
         x = torch.tensor(encoded[:-1], dtype=torch.long)
@@ -82,18 +83,16 @@ def load_dataset(dataset_name):
         raise
 
 class MyDataset(Dataset):
-    def __init__(self, path, block_size=512):  # 修改默认block_size为512以匹配GPT配置
-        self.enc = tiktoken.get_encoding("gpt2")
+    def __init__(self, path, block_size=512):
+        # 使用BERT分词器
+        self.tokenizer = BertTokenizer.from_pretrained('bert-base-chinese')
         self.block_size = block_size
         
         # 特殊符号用于分割训练文本
-        self.eos_token = self.enc.encode(
-            "<|endoftext|>",
-            allowed_special={"<|endoftext|>"}
-        )[0]
+        self.sep_token = self.tokenizer.sep_token_id
 
         self.encoded_data = []
-        self.max_lines = 500000
+        self.max_lines = 5000000
         raw_data = []
 
         print(f"开始加载数据...")
@@ -101,7 +100,7 @@ class MyDataset(Dataset):
             for i, line in enumerate(f):
                 if i >= self.max_lines:
                     break
-                if i % 10000 == 0:  # 每处理10000行打印一次进度
+                if i % 10000 == 0:
                     print(f"已处理 {i} 行数据...")
                 try:
                     text = json.loads(line.strip())['text']
@@ -113,36 +112,26 @@ class MyDataset(Dataset):
                     print(f"未知错误，跳过行 {i}: {e}")
                     continue
 
-        # 预训练中很重要的一个技术是把所有文本拼接起来，用特殊符号进行分割
+        # 预处理文本
         full_encoded = []
         for text in raw_data:
-            encoded_text = self.enc.encode(text)
-            full_encoded.extend(encoded_text + [self.eos_token])
+            encoded_text = self.tokenizer.encode(text, add_special_tokens=True)
+            full_encoded.extend(encoded_text + [self.sep_token])
 
         # 把长文本切割为block_size的文本块
         for i in range(0, len(full_encoded), self.block_size):
-            # 多取一个Token作为目标，方便对target进行shift移位处理
             chunk = full_encoded[i:i + self.block_size + 1]
             if len(chunk) < self.block_size + 1:
-                chunk = chunk + [self.eos_token] * (self.block_size + 1 - len(chunk))
+                chunk = chunk + [self.tokenizer.pad_token_id] * (self.block_size + 1 - len(chunk))
             self.encoded_data.append(chunk)
         
         print(f"数据预处理完成，共处理了 {len(self.encoded_data)} 个文本块")
 
-    def __len__(self):
-        return len(self.encoded_data)
-    
-    def __getitem__(self, idx):
-        chunk = self.encoded_data[idx]
-        x = torch.tensor(chunk[:-1], dtype=torch.long)
-        y = torch.tensor(chunk[1:], dtype=torch.long)
-        return x, y
-
     def encode(self, text):
-        return self.enc.encode(text)
+        return self.tokenizer.encode(text, add_special_tokens=True)
 
     def decode(self, ids):
-        return self.enc.decode(ids)
+        return self.tokenizer.decode(ids)
 
 def validate_sequence_length(text_length, block_size):
     """验证序列长度是否合适"""
